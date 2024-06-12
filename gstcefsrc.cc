@@ -608,7 +608,11 @@ init_cef (gpointer src)
   g_mutex_init (&init_lock);
   g_cond_init (&init_cond);
 
+#ifdef __APPLE__
+  dispatch_async_f(dispatch_get_main_queue(), src, (dispatch_function_t)&run_cef);
+#else
   g_thread_new("cef-ui-thread", (GThreadFunc) run_cef, src);
+#endif
 
   return NULL;
 }
