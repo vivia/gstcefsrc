@@ -392,6 +392,8 @@ class App : public CefApp
       // Optimize for no gpu usage
       command_line->AppendSwitch("disable-gpu");
       command_line->AppendSwitch("disable-gpu-compositing");
+    } else {
+      command_line->AppendSwitch("in-process-gpu");
     }
 
     if (src->chromium_debug_port >= 0) {
