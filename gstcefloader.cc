@@ -68,6 +68,7 @@ std::string GetFrameworkAsSibling(bool helper)
   ss << parent_dir.get() << "/" << kFrameworkPath;
   return ss.str();
 }
+} // namespace
 
 std::string GetFrameworkPath(bool helper)
 {
@@ -84,7 +85,6 @@ std::string GetFrameworkPath(bool helper)
 
   return {};
 }
-} // namespace
 
 gboolean gst_initialize_cef(bool helper)
 {
