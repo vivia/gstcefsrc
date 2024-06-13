@@ -1,3 +1,4 @@
+#include "gst/gstinfo.h"
 #include <stdio.h>
 #ifdef __APPLE__
 #include <memory>
@@ -5,6 +6,7 @@
 #include <vector>
 #include <mach-o/dyld.h>
 #include <dispatch/dispatch.h>
+#include <CoreFoundation/CoreFoundation.h>
 extern std::string GetFrameworkPath(bool helper);
 #endif
 
@@ -34,6 +36,10 @@ static gboolean cef_inited = FALSE;
 static gboolean init_result = FALSE;
 static GMutex init_lock;
 static GCond init_cond;
+
+#ifdef __APPLE__
+static CFRunLoopTimerRef cef_timer = nullptr;
+#endif
 
 #define GST_TYPE_CEF_LOG_SEVERITY_MODE \
   (gst_cef_log_severity_mode_get_type ())
@@ -460,6 +466,14 @@ static GstFlowReturn gst_cef_src_create(GstPushSrc *push_src, GstBuffer **buf)
   return GST_FLOW_OK;
 }
 
+static void
+gst_cef_run_loop(CFRunLoopTimerRef timer, void *info)
+{
+  auto src = (CFRunLoopTimerContext*)info;
+  GST_WARNING_OBJECT(src, "Handling events on behalf of CEF");
+  CefDoMessageLoopWork();
+}
+
 /* Once we have started a first cefsrc for this process, we start
  * a UI thread and never shut it down. We could probably refine this
  * to stop and restart the thread as needed, but this updated approach
@@ -485,6 +499,9 @@ run_cef (GstCefSrc *src)
   settings.no_sandbox = !src->sandbox;
   settings.windowless_rendering_enabled = true;
   settings.log_severity = src->log_severity;
+#ifdef __APPLE__
+  settings.external_message_pump = true;
+#endif
 
   GST_INFO  ("Initializing CEF");
 
@@ -512,20 +529,20 @@ run_cef (GstCefSrc *src)
   g_free(browser_subprocess_path);
 
 #ifdef __APPLE__
-  const std::string framework_folder = []() {
+  const std::string framework_folder = [&]() {
     std::string framework = GetFrameworkPath(false);
     const auto split = framework.find_last_of('/');
     return framework.substr(0, split);
   }();
-  fprintf(stderr, "CEF framework_dir_path: %s\n", framework_folder.c_str());
+  GST_WARNING_OBJECT(src, "CEF framework_dir_path: %s\n", framework_folder.c_str());
   CefString(&settings.framework_dir_path).FromString(framework_folder);
-  const std::string main_bundle_folder = [](){
+  const std::string main_bundle_folder = [&](){
     uint32_t size = 0;
     _NSGetExecutablePath(nullptr, &size);
     std::vector<char> host(size);
     _NSGetExecutablePath(host.data(), &size);
     auto host2 = std::unique_ptr<char>(realpath(host.data(), nullptr));
-    fprintf(stderr, "Main executable path: %s\n", host2.get());
+    GST_WARNING_OBJECT(src, "Main executable path: %s\n", host2.get());
     assert(size != 0);
     std::string host3(host2.get());
     const auto split = host3.find("Contents/MacOS");
@@ -569,6 +586,15 @@ run_cef (GstCefSrc *src)
   g_cond_signal(&init_cond);
   g_mutex_unlock (&init_lock);
 
+#ifdef __APPLE__
+  {
+    CFRunLoopTimerContext ctx{};
+    ctx.info = src;
+    GST_WARNING_OBJECT (src, "Installing event handler on main thread");
+    cef_timer = CFRunLoopTimerCreate(nullptr, 0, 1000.0/60.0, 0, 0, &gst_cef_run_loop, &ctx);
+    CFRunLoopAddTimer(CFRunLoopGetMain(), cef_timer, kCFRunLoopCommonModes);
+  }
+#else
   CefRunMessageLoop();
 
   CefShutdown();
@@ -577,14 +603,18 @@ run_cef (GstCefSrc *src)
   cef_inited = FALSE;
   g_cond_signal(&init_cond);
   g_mutex_unlock (&init_lock);
-
+#endif
 done:
   return NULL;
 }
 
 void quit_message_loop (int arg)
 {
+#ifdef __APPLE__
+  CFRunLoopRemoveTimer(CFRunLoopGetMain(), cef_timer, kCFRunLoopCommonModes);
+#else
   CefQuitMessageLoop();
+#endif
 }
 
 class ShutdownEnforcer {
