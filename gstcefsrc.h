@@ -56,6 +56,17 @@ struct _GstCefSrcClass {
   GstPushSrcClass parent_class;
 };
 
+class App : public CefApp {
+public:
+  App(GstCefSrc *src);
+
+  void OnBeforeCommandLineProcessing(const CefString &process_type,
+                                     CefRefPtr<CefCommandLine> command_line) override;
+private:
+  IMPLEMENT_REFCOUNTING(App);
+  GstCefSrc *src;
+};
+
 GType gst_cef_src_get_type (void);
 
 G_END_DECLS

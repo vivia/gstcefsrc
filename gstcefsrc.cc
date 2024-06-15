@@ -380,16 +380,13 @@ void BrowserClient::CloseBrowser(int arg)
   mElement->browser->GetHost()->CloseBrowser(true);
 }
 
-class App : public CefApp
+App::App(GstCefSrc *src) : src(src)
 {
-  public:
-    App(GstCefSrc *src) : src(src)
-    {
-    }
+}
 
-  virtual void OnBeforeCommandLineProcessing(const CefString &process_type,
-                                             CefRefPtr<CefCommandLine> command_line) override
-  {
+void App::OnBeforeCommandLineProcessing(const CefString &process_type,
+                                             CefRefPtr<CefCommandLine> command_line)
+{
     command_line->AppendSwitchWithValue("autoplay-policy", "no-user-gesture-required");
     command_line->AppendSwitch("enable-media-stream");
     command_line->AppendSwitch("disable-dev-shm-usage"); /* https://github.com/GoogleChrome/puppeteer/issues/1834 */
@@ -427,12 +424,7 @@ class App : public CefApp
 
       g_strfreev (flags_list);
     }
-  }
-
- private:
-  IMPLEMENT_REFCOUNTING(App);
-  GstCefSrc *src;
-};
+}
 
 static GstFlowReturn gst_cef_src_create(GstPushSrc *push_src, GstBuffer **buf)
 {
@@ -466,13 +458,7 @@ static GstFlowReturn gst_cef_src_create(GstPushSrc *push_src, GstBuffer **buf)
   return GST_FLOW_OK;
 }
 
-static void
-gst_cef_run_loop(CFRunLoopTimerRef timer, void *info)
-{
-  auto src = (CFRunLoopTimerContext*)info;
-  GST_WARNING_OBJECT(src, "Handling events on behalf of CEF");
-  CefDoMessageLoopWork();
-}
+CFRunLoopTimerRef install_loop(GstCefSrc *src);
 
 /* Once we have started a first cefsrc for this process, we start
  * a UI thread and never shut it down. We could probably refine this
@@ -500,6 +486,7 @@ run_cef (GstCefSrc *src)
   settings.windowless_rendering_enabled = true;
   settings.log_severity = src->log_severity;
 #ifdef __APPLE__
+  settings.multi_threaded_message_loop = false;
   settings.external_message_pump = true;
 #endif
 
@@ -588,11 +575,7 @@ run_cef (GstCefSrc *src)
 
 #ifdef __APPLE__
   {
-    CFRunLoopTimerContext ctx{};
-    ctx.info = src;
-    GST_WARNING_OBJECT (src, "Installing event handler on main thread");
-    cef_timer = CFRunLoopTimerCreate(nullptr, 0, 1000.0/60.0, 0, 0, &gst_cef_run_loop, &ctx);
-    CFRunLoopAddTimer(CFRunLoopGetMain(), cef_timer, kCFRunLoopCommonModes);
+    cef_timer = install_loop(src);
   }
 #else
   CefRunMessageLoop();
