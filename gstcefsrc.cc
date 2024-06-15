@@ -1,4 +1,3 @@
-#include "gst/gstinfo.h"
 #include <stdio.h>
 #ifdef __APPLE__
 #include <memory>
@@ -36,10 +35,6 @@ static gboolean cef_inited = FALSE;
 static gboolean init_result = FALSE;
 static GMutex init_lock;
 static GCond init_cond;
-
-#ifdef __APPLE__
-static CFRunLoopTimerRef cef_timer = nullptr;
-#endif
 
 #define GST_TYPE_CEF_LOG_SEVERITY_MODE \
   (gst_cef_log_severity_mode_get_type ())
@@ -333,7 +328,8 @@ class BrowserClient :
     virtual void OnBeforeClose(CefRefPtr<CefBrowser> browser) override;
 
     void MakeBrowser(int);
-    void CloseBrowser(int);
+
+    bool DoClose(CefRefPtr<CefBrowser> browser) override;
 
   private:
 
@@ -356,6 +352,15 @@ void BrowserClient::OnBeforeClose(CefRefPtr<CefBrowser> browser) {
   g_mutex_unlock(&mElement->state_lock);
 }
 
+void quit_message_loop (int arg);
+
+bool BrowserClient::DoClose(CefRefPtr<CefBrowser> browser)
+{
+  CefLifeSpanHandler::DoClose(browser);
+  quit_message_loop(0);
+  return true;
+}
+
 void BrowserClient::MakeBrowser(int arg)
 {
   CefWindowInfo window_info;
@@ -375,13 +380,45 @@ void BrowserClient::MakeBrowser(int arg)
   g_mutex_unlock(&mElement->state_lock);
 }
 
-void BrowserClient::CloseBrowser(int arg)
-{
-  mElement->browser->GetHost()->CloseBrowser(true);
-}
-
 App::App(GstCefSrc *src) : src(src)
 {
+}
+
+CefRefPtr<CefBrowserProcessHandler> App::GetBrowserProcessHandler()
+{
+  return this;
+}
+
+static CFRunLoopTimerRef workTimer_;
+
+void gst_cef_loop();
+CFRunLoopTimerRef gst_cef_domessagework(CFTimeInterval interval);
+
+void App::OnScheduleMessagePumpWork(int64_t delay_ms)
+{
+  static const int64_t kMaxTimerDelay = 1000.0 / 60.0;
+
+  if (workTimer_ != nullptr) {
+    CFRunLoopRemoveTimer(CFRunLoopGetMain(), workTimer_, kCFRunLoopDefaultMode);
+    CFRelease(workTimer_);
+    workTimer_ = nullptr;
+  }
+
+  if (delay_ms <= 0) {
+    // Execute the work immediately.
+    gst_cef_loop();
+
+    // Schedule more work later.
+    OnScheduleMessagePumpWork(kMaxTimerDelay);
+  } else {
+      int64_t timer_delay_ms = delay_ms;
+      // Never wait longer than the maximum allowed time.
+      if (timer_delay_ms > kMaxTimerDelay) timer_delay_ms = kMaxTimerDelay;
+
+      workTimer_ = gst_cef_domessagework((double)timer_delay_ms * (1.0 / 1000.0));
+
+      CFRunLoopAddTimer(CFRunLoopGetMain(), workTimer_, kCFRunLoopDefaultMode);
+  }
 }
 
 void App::OnBeforeCommandLineProcessing(const CefString &process_type,
@@ -457,8 +494,6 @@ static GstFlowReturn gst_cef_src_create(GstPushSrc *push_src, GstBuffer **buf)
 
   return GST_FLOW_OK;
 }
-
-CFRunLoopTimerRef install_loop(GstCefSrc *src);
 
 /* Once we have started a first cefsrc for this process, we start
  * a UI thread and never shut it down. We could probably refine this
@@ -573,11 +608,7 @@ run_cef (GstCefSrc *src)
   g_cond_signal(&init_cond);
   g_mutex_unlock (&init_lock);
 
-#ifdef __APPLE__
-  {
-    cef_timer = install_loop(src);
-  }
-#else
+#ifndef __APPLE__
   CefRunMessageLoop();
 
   CefShutdown();
@@ -594,7 +625,11 @@ done:
 void quit_message_loop (int arg)
 {
 #ifdef __APPLE__
-  CFRunLoopRemoveTimer(CFRunLoopGetMain(), cef_timer, kCFRunLoopCommonModes);
+  CefShutdown();
+  g_mutex_lock (&init_lock);
+  cef_inited = FALSE;
+  g_cond_signal(&init_cond);
+  g_mutex_unlock (&init_lock);
 #else
   CefQuitMessageLoop();
 #endif
