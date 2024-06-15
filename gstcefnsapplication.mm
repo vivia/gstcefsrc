@@ -22,7 +22,6 @@ bool g_handling_send_event = false;
 - (BOOL)isHandlingSendEvent;
 - (void)setHandlingSendEvent:(BOOL)handlingSendEvent;
 - (void)_swizzled_sendEvent:(NSEvent *)event;
-- (void)_swizzled_terminate:(id)sender;
 @end
 
 void gst_cef_loop() {
@@ -71,7 +70,6 @@ CFRunLoopTimerRef gst_cef_domessagework(CFTimeInterval interval) {
     method_exchangeImplementations(originalTerm, swizzledTerm);
   };
 
-  swizzle(@selector(terminate:), @selector(_swizzled_terminate:));
   swizzle(@selector(sendEvent:), @selector(_swizzled_sendEvent:));
   swizzle(@selector(run), @selector(_swizzled_run));
   syslog(LOG_NOTICE, "Swizzling complete.");
@@ -94,12 +92,5 @@ CFRunLoopTimerRef gst_cef_domessagework(CFTimeInterval interval) {
   // syslog(LOG_DEBUG, "[NSEvent sendEvent]: %p", event);
   // Calls NSApplication::sendEvent due to the swizzling.
   [self _swizzled_sendEvent:event];
-}
-
-// This method will be called via Cmd+Q.
-- (void)_swizzled_terminate:(id)sender {
-  syslog(LOG_WARNING, "Shutting down app.");
-  CefShutdown();
-  [self _swizzled_terminate:sender];
 }
 @end

@@ -329,8 +329,6 @@ class BrowserClient :
 
     void MakeBrowser(int);
 
-    bool DoClose(CefRefPtr<CefBrowser> browser) override;
-
   private:
 
     CefRefPtr<CefRenderHandler> render_handler;
@@ -350,15 +348,6 @@ void BrowserClient::OnBeforeClose(CefRefPtr<CefBrowser> browser) {
   mElement->started = FALSE;
   g_cond_signal (&mElement->state_cond);
   g_mutex_unlock(&mElement->state_lock);
-}
-
-void quit_message_loop (int arg);
-
-bool BrowserClient::DoClose(CefRefPtr<CefBrowser> browser)
-{
-  CefLifeSpanHandler::DoClose(browser);
-  quit_message_loop(0);
-  return true;
 }
 
 void BrowserClient::MakeBrowser(int arg)
@@ -622,17 +611,12 @@ done:
   return NULL;
 }
 
+// It is too late to deinitialize CEF when __cxa_finalize_ranges is called.
+// You'll get an assertion from context.cc(41).
+#ifndef __APPLE__
 void quit_message_loop (int arg)
 {
-#ifdef __APPLE__
-  CefShutdown();
-  g_mutex_lock (&init_lock);
-  cef_inited = FALSE;
-  g_cond_signal(&init_cond);
-  g_mutex_unlock (&init_lock);
-#else
   CefQuitMessageLoop();
-#endif
 }
 
 class ShutdownEnforcer {
@@ -649,6 +633,7 @@ class ShutdownEnforcer {
     g_mutex_unlock (&init_lock);
   }
 } shutdown_enforcer;
+#endif
 
 static gpointer
 init_cef (gpointer src)
@@ -708,6 +693,12 @@ done:
   return ret;
 }
 
+static void
+gst_close_browser(GstCefSrc *src)
+{
+  src->browser->GetHost()->CloseBrowser(true);
+}
+
 static gboolean
 gst_cef_src_stop (GstBaseSrc *base_src)
 {
@@ -716,7 +707,11 @@ gst_cef_src_stop (GstBaseSrc *base_src)
   GST_INFO_OBJECT (src, "Stopping");
 
   if (src->browser) {
-    src->browser->GetHost()->CloseBrowser(true);
+#ifdef __APPLE__
+    dispatch_async_f(dispatch_get_main_queue(), src, (dispatch_function_t)&gst_close_browser);
+#else
+    gst_close_browser(src);
+#endif
 
     /* And wait for this src's browser to have been closed */
     g_mutex_lock(&src->state_lock);
