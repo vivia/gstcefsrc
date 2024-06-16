@@ -484,6 +484,19 @@ static GstFlowReturn gst_cef_src_create(GstPushSrc *push_src, GstBuffer **buf)
   return GST_FLOW_OK;
 }
 
+void
+gst_cef_unload()
+{
+  CefShutdown();
+
+  g_mutex_lock (&init_lock);
+  cef_inited = FALSE;
+  g_cond_signal(&init_cond);
+  g_mutex_unlock (&init_lock);
+}
+
+extern void gst_cef_set_shutdown_observer();
+
 /* Once we have started a first cefsrc for this process, we start
  * a UI thread and never shut it down. We could probably refine this
  * to stop and restart the thread as needed, but this updated approach
@@ -597,15 +610,11 @@ run_cef (GstCefSrc *src)
   g_cond_signal(&init_cond);
   g_mutex_unlock (&init_lock);
 
-#ifndef __APPLE__
+#ifdef __APPLE__
+  gst_cef_set_shutdown_observer();
+#else
   CefRunMessageLoop();
-
-  CefShutdown();
-
-  g_mutex_lock (&init_lock);
-  cef_inited = FALSE;
-  g_cond_signal(&init_cond);
-  g_mutex_unlock (&init_lock);
+  gst_cef_unload();
 #endif
 done:
   return NULL;

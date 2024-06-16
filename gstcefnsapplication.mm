@@ -22,7 +22,10 @@ bool g_handling_send_event = false;
 - (BOOL)isHandlingSendEvent;
 - (void)setHandlingSendEvent:(BOOL)handlingSendEvent;
 - (void)_swizzled_sendEvent:(NSEvent *)event;
+- (void)applicationWillTerminate:(NSNotification *)notification;
 @end
+
+extern void gst_cef_unload();
 
 void gst_cef_loop() {
   auto *app = [NSApplication sharedApplication];
@@ -93,4 +96,17 @@ CFRunLoopTimerRef gst_cef_domessagework(CFTimeInterval interval) {
   // Calls NSApplication::sendEvent due to the swizzling.
   [self _swizzled_sendEvent:event];
 }
+
+- (void)applicationWillTerminate:(NSNotification *)notification {
+  gst_cef_unload();
+}
 @end
+
+void gst_cef_set_shutdown_observer() {
+  assert([[NSApplication sharedApplication] respondsToSelector:@selector(applicationWillTerminate:)]);
+  [[NSNotificationCenter defaultCenter]
+      addObserver:[NSApplication sharedApplication]
+         selector:@selector(applicationWillTerminate:)
+             name:NSApplicationWillTerminateNotification
+           object:[NSApplication sharedApplication]];
+}
