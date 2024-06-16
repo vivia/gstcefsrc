@@ -43,18 +43,13 @@ CFRunLoopTimerRef gst_cef_domessagework(CFTimeInterval interval) {
                               target:[NSApplication sharedApplication]
                             selector:@selector(runCefEventLoop)
                             userInfo:NULL
-                             repeats:NO];
+                             repeats:YES];
 }
 
 @implementation NSApplication (GstCEFApplication)
 
 - (void)runCefEventLoop {
   CefDoMessageLoopWork();
-}
-
-- (void)_swizzled_run {
-  syslog(LOG_NOTICE, "Starting CEF-inoculated app...");
-  [self _swizzled_run];
 }
 
 // This selector is called very early during the application initialization.
@@ -76,7 +71,6 @@ CFRunLoopTimerRef gst_cef_domessagework(CFTimeInterval interval) {
   };
 
   swizzle(@selector(sendEvent:), @selector(_swizzled_sendEvent:));
-  swizzle(@selector(run), @selector(_swizzled_run));
   syslog(LOG_NOTICE, "Swizzling complete.");
 }
 

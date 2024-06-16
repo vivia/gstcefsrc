@@ -395,8 +395,7 @@ void App::OnScheduleMessagePumpWork(int64_t delay_ms)
   static const int64_t kMaxTimerDelay = 1000.0 / 60.0;
 
   if (workTimer_ != nullptr) {
-    CFRunLoopRemoveTimer(CFRunLoopGetMain(), workTimer_, kCFRunLoopDefaultMode);
-    CFRelease(workTimer_);
+    CFRunLoopTimerInvalidate(workTimer_);
     workTimer_ = nullptr;
   }
 
