@@ -1,4 +1,8 @@
+// SPDX-FileCopyrightText: 2024 L. E. Segovia <amy@centricular.com>
+// SPDX-License-Ref: LGPL-2.1-or-later
+
 #include "gstcefsrc.h"
+#include "gstcefnsapplication.h"
 
 #include <AppKit/AppKit.h>
 #import <Appkit/AppKit.h>
@@ -24,8 +28,6 @@ bool g_handling_send_event = false;
 - (void)_swizzled_sendEvent:(NSEvent *)event;
 - (void)applicationWillTerminate:(NSNotification *)notification;
 @end
-
-extern void gst_cef_unload();
 
 void gst_cef_loop() {
   auto *app = [NSApplication sharedApplication];
@@ -103,10 +105,21 @@ CFRunLoopTimerRef gst_cef_domessagework(CFTimeInterval interval) {
 @end
 
 void gst_cef_set_shutdown_observer() {
-  assert([[NSApplication sharedApplication] respondsToSelector:@selector(applicationWillTerminate:)]);
+  assert([[NSApplication sharedApplication]
+      respondsToSelector:@selector(applicationWillTerminate:)]);
   [[NSNotificationCenter defaultCenter]
       addObserver:[NSApplication sharedApplication]
          selector:@selector(applicationWillTerminate:)
              name:NSApplicationWillTerminateNotification
            object:[NSApplication sharedApplication]];
+  [NSEvent
+      addLocalMonitorForEventsMatchingMask:NSEventMaskApplicationDefined
+                                   handler:^(NSEvent *_Nonnull event) {
+                                     if ([event subtype] ==
+                                             NSEventSubtypeApplicationActivated &&
+                                         NSEqualPoints([event locationInWindow],
+                                                       NSZeroPoint))
+                                       gst_cef_unload();
+                                     return event;
+                                   }];
 }

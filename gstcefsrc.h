@@ -65,14 +65,19 @@ public:
                                      CefRefPtr<CefCommandLine> command_line) override;
 
   CefRefPtr<CefBrowserProcessHandler> GetBrowserProcessHandler() override;
-
+#ifdef __APPLE__
   void OnScheduleMessagePumpWork(int64_t delay_ms) override;
+#endif
 private:
   IMPLEMENT_REFCOUNTING(App);
   GstCefSrc *src;
 };
 
 GType gst_cef_src_get_type (void);
+
+#ifdef __APPLE__
+void gst_cef_unload();
+#endif
 
 G_END_DECLS
 

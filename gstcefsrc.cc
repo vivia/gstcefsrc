@@ -14,6 +14,9 @@
 
 #include "gstcefsrc.h"
 #include "gstcefaudiometa.h"
+#ifdef __APPLE__
+#include "gstcefnsapplication.h"
+#endif
 
 GST_DEBUG_CATEGORY_STATIC (cef_src_debug);
 #define GST_CAT_DEFAULT cef_src_debug
@@ -31,9 +34,16 @@ GST_DEBUG_CATEGORY_STATIC (cef_console_debug);
 #define DEFAULT_SANDBOX FALSE
 
 static gboolean cef_inited = FALSE;
-static gboolean init_result = FALSE;
+static gboolean cef_shutdown = FALSE;
 static GMutex init_lock;
 static GCond init_cond;
+
+#ifdef __APPLE__
+static gboolean init_result = FALSE;
+static CFRunLoopTimerRef workTimer_ = nullptr;
+
+extern std::string gst_get_cef_framework_path(bool helper);
+#endif
 
 #define GST_TYPE_CEF_LOG_SEVERITY_MODE \
   (gst_cef_log_severity_mode_get_type ())
@@ -377,13 +387,11 @@ CefRefPtr<CefBrowserProcessHandler> App::GetBrowserProcessHandler()
   return this;
 }
 
-static CFRunLoopTimerRef workTimer_;
-
-void gst_cef_loop();
-CFRunLoopTimerRef gst_cef_domessagework(CFTimeInterval interval);
-
+#ifdef __APPLE__
 void App::OnScheduleMessagePumpWork(int64_t delay_ms)
 {
+  if (cef_shutdown) return;
+
   static const int64_t kMaxTimerDelay = 1000.0 / 60.0;
 
   if (workTimer_ != nullptr) {
@@ -408,6 +416,7 @@ void App::OnScheduleMessagePumpWork(int64_t delay_ms)
       CFRunLoopAddTimer(CFRunLoopGetMain(), workTimer_, kCFRunLoopDefaultMode);
   }
 }
+#endif
 
 void App::OnBeforeCommandLineProcessing(const CefString &process_type,
                                              CefRefPtr<CefCommandLine> command_line)
@@ -422,7 +431,9 @@ void App::OnBeforeCommandLineProcessing(const CefString &process_type,
       command_line->AppendSwitch("disable-gpu");
       command_line->AppendSwitch("disable-gpu-compositing");
     } else {
+#ifdef __APPLE__
       command_line->AppendSwitch("in-process-gpu");
+#endif
     }
 
     if (src->chromium_debug_port >= 0) {
@@ -483,18 +494,39 @@ static GstFlowReturn gst_cef_src_create(GstPushSrc *push_src, GstBuffer **buf)
   return GST_FLOW_OK;
 }
 
-void
-gst_cef_unload()
+static void*
+gst_cef_shutdown(void *)
 {
+#ifdef __APPLE__
+  CefQuitMessageLoop();
+
+  g_mutex_lock (&init_lock);
+  cef_shutdown = TRUE;
+  CefShutdown();
+  g_cond_signal(&init_cond);
+  g_mutex_unlock (&init_lock);
+#else
   CefShutdown();
 
   g_mutex_lock (&init_lock);
   cef_inited = FALSE;
   g_cond_signal(&init_cond);
   g_mutex_unlock (&init_lock);
+#endif
+  return nullptr;
 }
 
+void
+gst_cef_unload()
+{
+  static GOnce init_once = G_ONCE_INIT;
+
+  g_once (&init_once, &gst_cef_shutdown, nullptr);
+}
+
+#ifdef __APPLE__
 extern void gst_cef_set_shutdown_observer();
+#endif
 
 /* Once we have started a first cefsrc for this process, we start
  * a UI thread and never shut it down. We could probably refine this
