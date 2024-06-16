@@ -6,7 +6,6 @@
 #include <mach-o/dyld.h>
 #include <dispatch/dispatch.h>
 #include <CoreFoundation/CoreFoundation.h>
-extern std::string GetFrameworkPath(bool helper);
 #endif
 
 #include <include/base/cef_bind.h>
@@ -554,7 +553,7 @@ run_cef (GstCefSrc *src)
 
 #ifdef __APPLE__
   const std::string framework_folder = [&]() {
-    std::string framework = GetFrameworkPath(false);
+    std::string framework = gst_get_cef_framework_path(false);
     const auto split = framework.find_last_of('/');
     return framework.substr(0, split);
   }();
