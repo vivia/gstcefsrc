@@ -9,6 +9,12 @@ set(CMAKE_CONFIGURATION_TYPES Debug Release)
 
 project(gstcef)
 
+if (APPLE)
+  enable_language(CXX OBJCXX)
+  set(CMAKE_OBJCXX_STANDARD 14)
+  set(CMAKE_OBJCXX_STANDARD_REQUIRED ON)
+endif()
+
 set_property(GLOBAL PROPERTY OS_FOLDERS ON)
 
 find_package(PkgConfig REQUIRED)
@@ -111,7 +117,9 @@ add_library("gstcef" SHARED ${GSTCEF_SRCS})
 SET_LIBRARY_TARGET_PROPERTIES("gstcef")
 add_dependencies("gstcef" libcef_dll_wrapper)
 target_link_libraries("gstcef" libcef_dll_wrapper ${CEF_STANDARD_LIBS} ${GST_LIBRARIES})
-if (NOT APPLE)
+if (APPLE)
+  target_sources("gstcef" PRIVATE gstcefnsapplication.mm)
+else()
 target_link_libraries("gstcefsubprocess" libcef_lib)
 endif()
 target_include_directories("gstcef" PUBLIC ${GST_INCLUDE_DIRS})
