@@ -92,28 +92,4 @@ CFRunLoopTimerRef gst_cef_domessagework(CFTimeInterval interval) {
   // Calls NSApplication::sendEvent due to the swizzling.
   [self _swizzled_sendEvent:event];
 }
-
-- (void)applicationWillTerminate:(NSNotification *)notification {
-  gst_cef_unload();
-}
 @end
-
-void gst_cef_set_shutdown_observer() {
-  assert([[NSApplication sharedApplication]
-      respondsToSelector:@selector(applicationWillTerminate:)]);
-  [[NSNotificationCenter defaultCenter]
-      addObserver:[NSApplication sharedApplication]
-         selector:@selector(applicationWillTerminate:)
-             name:NSApplicationWillTerminateNotification
-           object:[NSApplication sharedApplication]];
-  [NSEvent
-      addLocalMonitorForEventsMatchingMask:NSEventMaskApplicationDefined
-                                   handler:^(NSEvent *_Nonnull event) {
-                                     if ([event subtype] ==
-                                             NSEventSubtypeApplicationActivated &&
-                                         NSEqualPoints([event locationInWindow],
-                                                       NSZeroPoint))
-                                       gst_cef_unload();
-                                     return event;
-                                   }];
-}
