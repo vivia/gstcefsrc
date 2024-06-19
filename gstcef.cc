@@ -20,7 +20,9 @@
 #include "gstcefsrc.h"
 #include "gstcefdemux.h"
 #include "gstcefbin.h"
+#ifdef GST_CEF_USE_SANDBOX
 #include "gstcefloader.h"
+#endif
 
 static gboolean
 plugin_init(GstPlugin *plugin)
