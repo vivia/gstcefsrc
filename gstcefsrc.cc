@@ -16,6 +16,7 @@
 #include "gstcefsrc.h"
 #include "gstcefaudiometa.h"
 #ifdef __APPLE__
+#include "gstcefloader.h"
 #include "gstcefnsapplication.h"
 #endif
 

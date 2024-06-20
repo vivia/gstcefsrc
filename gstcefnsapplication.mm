@@ -26,7 +26,6 @@ bool g_handling_send_event = false;
 - (BOOL)isHandlingSendEvent;
 - (void)setHandlingSendEvent:(BOOL)handlingSendEvent;
 - (void)_swizzled_sendEvent:(NSEvent *)event;
-- (void)applicationWillTerminate:(NSNotification *)notification;
 @end
 
 void gst_cef_loop() {
