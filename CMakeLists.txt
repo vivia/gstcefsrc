@@ -32,10 +32,14 @@ endif()
 
 STRING(REGEX REPLACE "\\+" "%2B" CEF_ESCAPED_VERSION ${CEF_VERSION})
 
-set(USE_SANDBOX OFF)
+# Setting an option prior to it existing is verboten.
+# https://cmake.org/cmake/help/latest/policy/CMP0077.html
+# https://gitlab.kitware.com/cmake/cmake/-/issues/20312
+# https://cmake.org/cmake/help/latest/module/FetchContent.html#overriding-where-to-find-cmakelists-txt
+set(USE_SANDBOX OFF CACHE INTERNAL "")
 # Determine the platform.
 if (APPLE)
-  set(USE_SANDBOX ON)
+  set(USE_SANDBOX ON CACHE INTERNAL "")
   if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm")
     set(CEF_PLATFORM "macosarm64")
   else()
@@ -93,6 +97,8 @@ if(USE_SANDBOX)
   set(CMAKE_MACOSX_RPATH 1)
   set(CMAKE_INSTALL_NAME_DIR "@rpath")
   add_compile_definitions("-DGST_CEF_USE_SANDBOX")
+endif()
+if (USE_SANDBOX AND (NOT DEFINED OS_LINUX))
   ADD_LOGICAL_TARGET("libcef_lib" "${CEF_SANDBOX_LIB_DEBUG}" "${CEF_SANDBOX_LIB_RELEASE}")
 else()
   ADD_LOGICAL_TARGET("libcef_lib" "${CEF_LIB_DEBUG}" "${CEF_LIB_RELEASE}")
@@ -106,6 +112,9 @@ add_library("gstcef" SHARED ${GSTCEF_SRCS})
 SET_LIBRARY_TARGET_PROPERTIES("gstcef")
 add_dependencies("gstcef" libcef_dll_wrapper)
 target_link_libraries("gstcef" libcef_dll_wrapper ${CEF_STANDARD_LIBS} ${GST_LIBRARIES})
+if (CMAKE_BUILD_TYPE STREQUAL "Release" AND MSVC)
+  target_link_options("gstcef" PRIVATE "/DEBUG")
+endif()
 if (APPLE)
   target_sources("gstcef" PRIVATE gstcefnsapplication.mm)
 endif()
