@@ -38,10 +38,19 @@ GST_DEBUG_CATEGORY_STATIC (cef_console_debug);
 #define DEFAULT_SANDBOX FALSE
 #endif
 
+// Blocks other elements from initializing CEF is it's already in progress.
 static gboolean cef_initializing = FALSE;
+// CEF's initialization process has completed, irrespective of its success.
 static gboolean cef_inited = FALSE;
+// CEF has been marked for shutdown, stopping any leftover events from being
+// processed. Any elements that need it must wait till this flag and
+// cef_initializing are cleared.
 static gboolean cef_shutdown = FALSE;
+// CEF initialization status. If cef_inited == TRUE and this variable is FALSE,
+// no CEF elements will be allowed to complete initialization.
 static gboolean init_result = FALSE;
+// Number of running CEF instances. Setting this to 0 must be accompanied
+// with cef_shutdown to prevent leaks on application exit.
 static guint64 browsers = 0U;
 static GMutex init_lock;
 static GCond init_cond;
@@ -51,6 +60,8 @@ static GThread *thread = nullptr;
 #endif
 
 #ifdef __APPLE__
+// On every timeout, the CEF event handler will be run in the context
+// of the main thread's Cocoa event loop.
 static CFRunLoopTimerRef workTimer_ = nullptr;
 #endif
 
