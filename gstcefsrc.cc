@@ -679,23 +679,34 @@ gst_cef_handle_lifetime(GstElement *element, GstStateChange transition)
     if (cef_inited && !init_result) {
       // BAIL OUT, CEF is not loaded.
       result = GST_STATE_CHANGE_FAILURE;
-    } else if (!cef_inited && !init_result) {
+    } else if (!cef_inited) {
       cef_initializing = TRUE;
+      g_cond_broadcast (&init_cond);
       /* Initialize Chromium Embedded Framework */
 #ifdef __APPLE__
       /* in the main thread as per Cocoa */
-      dispatch_async_f(dispatch_get_main_queue(), (GstCefSrc*)element, (dispatch_function_t)&run_cef);
+      if (gst_is_main_thread()) {
+        g_mutex_unlock (&init_lock);
+        run_cef ((GstCefSrc*) element);
+        g_mutex_lock (&init_lock);
+      } else {
+        dispatch_async_f(dispatch_get_main_queue(), (GstCefSrc*)element, (dispatch_function_t)&run_cef);
+        while (!cef_inited)
+          g_cond_wait (&init_cond, &init_lock);
+      }
 #else
         /* in a separate UI thread */
       thread = g_thread_new("cef-ui-thread", (GThreadFunc) run_cef, (GstCefSrc*)element);
-#endif
       while (!cef_inited)
         g_cond_wait (&init_cond, &init_lock);
+#endif
       if (!init_result) {
         // BAIL OUT, CEF is not loaded.
         result = GST_STATE_CHANGE_FAILURE;
+#ifndef __APPLE__
         g_thread_join(thread);
         thread = nullptr;
+#endif
       }
       cef_initializing = FALSE;
       g_cond_broadcast (&init_cond);

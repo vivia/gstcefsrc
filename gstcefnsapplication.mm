@@ -92,3 +92,8 @@ CFRunLoopTimerRef gst_cef_domessagework(CFTimeInterval interval) {
   [self _swizzled_sendEvent:event];
 }
 @end
+
+BOOL gst_is_main_thread()
+{
+  return [NSThread isMainThread];
+}

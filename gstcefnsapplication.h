@@ -18,3 +18,5 @@ CFRunLoopTimerRef gst_cef_domessagework(CFTimeInterval interval);
 /// - NSEvent.NSEventMaskApplicationDefined as sent by gstmacos.mm
 /// The shutdown executes only once.
 void gst_cef_set_shutdown_observer();
+/// Execute [NSThread isMainThread] from a non-Objective-C context.
+BOOL gst_is_main_thread();
