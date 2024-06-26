@@ -574,6 +574,7 @@ run_cef (GstCefSrc *src)
   settings.windowless_rendering_enabled = true;
   settings.log_severity = src->log_severity;
   settings.multi_threaded_message_loop = false;
+  CefString(&settings.root_cache_path).FromString("/tmp");
 #ifdef __APPLE__
   settings.external_message_pump = true;
 #endif
