@@ -54,6 +54,7 @@ GST_DEBUG_CATEGORY_STATIC (cef_console_debug);
 #define DEFAULT_SANDBOX FALSE
 #endif
 #define DEFAULT_LISTEN_FOR_JS_SIGNALS FALSE
+#define DEFAULT_USE_CEF_TIMESTAMPS FALSE
 
 using CefStatus = enum : guint8 {
   // CEF was either unloaded successfully or not yet loaded.
@@ -130,6 +131,7 @@ enum
   PROP_JS_FLAGS,
   PROP_LOG_SEVERITY,
   PROP_CEF_CACHE_LOCATION,
+  PROP_USE_CEF_TIMESTAMPS,
 };
 
 #define gst_cef_src_parent_class parent_class
@@ -258,15 +260,17 @@ class RenderHandler : public CefRenderHandler
       new_buffer = gst_buffer_new_allocate (NULL, src->width * src->height * 4, NULL);
       gst_buffer_fill (new_buffer, 0, buffer, w * h * 4);
 
-      GstClock *clock = gst_element_get_clock (GST_ELEMENT (src));
-      GstClockTime base_time = gst_element_get_base_time (GST_ELEMENT (src));
-      GstClockTime now_gst = gst_clock_get_time (clock);
-      gst_object_unref (clock);
+      if (src->use_cef_timestamps) {
+        GstClock *clock = gst_element_get_clock (GST_ELEMENT (src));
+        GstClockTime base_time = gst_element_get_base_time (GST_ELEMENT (src));
+        GstClockTime now_gst = gst_clock_get_time (clock);
+        gst_object_unref (clock);
 
-      // running time
-      GstClockTime gst_pts = (now_gst > base_time) ? now_gst - base_time : 0;
+        // running time
+        GstClockTime gst_pts = (now_gst > base_time) ? now_gst - base_time : 0;
 
-      GST_BUFFER_PTS (new_buffer) = gst_pts;
+        GST_BUFFER_PTS (new_buffer) = gst_pts;
+      }
 
       g_mutex_lock (&src->queue_lock);
       gst_queue_array_push_tail (src->queue, new_buffer);
@@ -337,41 +341,43 @@ class AudioHandler : public CefAudioHandler
     }
     gst_buffer_unmap (buf, &info);
 
-    GstClock *clock = gst_element_get_clock (GST_ELEMENT (src));
-    GstClockTime base_time = gst_element_get_base_time (GST_ELEMENT (src));
-    GstClockTime now_unix = g_get_real_time () * 1000; // nsec
-    GstClockTime now_gst = gst_clock_get_time (clock);
-    GstClockTime cef_pts_unix = pts * 1000000; // pts is in msec
-    GstClockTime capture_gst;
+    if (src->use_cef_timestamps) {
+      GstClock *clock = gst_element_get_clock (GST_ELEMENT (src));
+      GstClockTime base_time = gst_element_get_base_time (GST_ELEMENT (src));
+      GstClockTime now_unix = g_get_real_time () * 1000; // nsec
+      GstClockTime now_gst = gst_clock_get_time (clock);
+      GstClockTime cef_pts_unix = pts * 1000000; // pts is in msec
+      GstClockTime capture_gst;
 
-    if (cef_pts_unix > now_unix) {
-      GstClockTime diff = cef_pts_unix - now_unix;
-      capture_gst = now_gst + diff;
-      GST_DEBUG_OBJECT (src, "diff %lu", diff);
-    } else {
-      GstClockTime diff = now_unix - cef_pts_unix;
-      if (now_gst > diff)
-        capture_gst = now_gst - diff;
-      else
-        capture_gst = 0;
-      GST_DEBUG_OBJECT (src, "diff -%lu", diff);
+      if (cef_pts_unix > now_unix) {
+        GstClockTime diff = cef_pts_unix - now_unix;
+        capture_gst = now_gst + diff;
+        GST_DEBUG_OBJECT (src, "diff %lu", diff);
+      } else {
+        GstClockTime diff = now_unix - cef_pts_unix;
+        if (now_gst > diff)
+          capture_gst = now_gst - diff;
+        else
+          capture_gst = 0;
+        GST_DEBUG_OBJECT (src, "diff -%lu", diff);
+      }
+
+      GstClockTime gst_pts;
+      if (capture_gst > base_time) {
+        gst_pts = capture_gst - base_time;
+      } else {
+        GST_WARNING_OBJECT (src, "audio pts (%lu) < base time (%lu)", capture_gst, base_time);
+        gst_pts = 0;
+      }
+      gst_object_unref (clock);
+
+      GST_BUFFER_PTS (buf) = gst_pts;
+      GST_DEBUG_OBJECT (src, "audio pts %lu", gst_pts);
+
+      GST_BUFFER_DURATION (buf) = gst_util_uint64_scale (frames, GST_SECOND, mRate);
     }
-
-    GstClockTime gst_pts;
-    if (capture_gst > base_time) {
-      gst_pts = capture_gst - base_time;
-    } else {
-      GST_WARNING_OBJECT (src, "audio pts (%lu) < base time (%lu)", capture_gst, base_time);
-      gst_pts = 0;
-    }
-    gst_object_unref (clock);
-
-    GST_BUFFER_PTS (buf) = gst_pts;
-    GST_DEBUG_OBJECT (src, "audio pts %lu", gst_pts);
 
     g_mutex_lock (&src->queue_lock);
-
-    GST_BUFFER_DURATION (buf) = gst_util_uint64_scale (frames, GST_SECOND, mRate);
 
     if (!src->audio_buffers) {
       src->audio_buffers = gst_buffer_list_new();
@@ -1263,6 +1269,13 @@ gst_cef_src_set_property (GObject * object, guint prop_id, const GValue * value,
       src->cef_cache_location = g_value_dup_string (value);
       break;
     }
+    case PROP_USE_CEF_TIMESTAMPS:
+    {
+      GstBaseSrc *base_src = GST_BASE_SRC (src);
+      src->use_cef_timestamps = g_value_get_boolean (value);
+      gst_base_src_set_do_timestamp (base_src, !src->use_cef_timestamps);
+      break;
+    }
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -1302,6 +1315,9 @@ gst_cef_src_get_property (GObject * object, guint prop_id, GValue * value,
       break;
     case PROP_CEF_CACHE_LOCATION:
       g_value_set_string (value, src->cef_cache_location);
+      break;
+    case PROP_USE_CEF_TIMESTAMPS:
+      g_value_set_boolean (value, src->use_cef_timestamps);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -1348,9 +1364,11 @@ gst_cef_src_init (GstCefSrc * src)
   src->js_flags = NULL;
   src->log_severity = DEFAULT_LOG_SEVERITY;
   src->cef_cache_location = NULL;
+  src->use_cef_timestamps = DEFAULT_USE_CEF_TIMESTAMPS;
 
   gst_base_src_set_format (base_src, GST_FORMAT_TIME);
   gst_base_src_set_live (base_src, TRUE);
+  gst_base_src_set_do_timestamp (base_src, !DEFAULT_USE_CEF_TIMESTAMPS);
 
   g_cond_init (&src->state_cond);
   g_mutex_init (&src->state_lock);
@@ -1430,6 +1448,11 @@ gst_cef_src_class_init (GstCefSrcClass * klass)
           "(Example: /tmp/cef-cache/) - "
           "deprecated: set GST_CEF_CACHE_LOCATION in the environment instead",
           NULL, (GParamFlags) (G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_READY)));
+
+  g_object_class_install_property (gobject_class, PROP_USE_CEF_TIMESTAMPS,
+    g_param_spec_boolean ("use-cef-timestamps", "use-cef-timestamps",
+          "Use CEF-provided timestamps (instead of GStreamer internal)",
+          DEFAULT_USE_CEF_TIMESTAMPS, (GParamFlags) (G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_READY)));
 
   gst_element_class_set_static_metadata (gstelement_class,
       "Chromium Embedded Framework source", "Source/Video",

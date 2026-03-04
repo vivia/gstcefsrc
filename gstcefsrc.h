@@ -74,6 +74,7 @@ struct _GstCefSrc {
   GstQueueArray *queue;
   gboolean flushing;
   gboolean downstream_demuxer;
+  gboolean use_cef_timestamps;
 };
 
 struct _GstCefSrcClass {
